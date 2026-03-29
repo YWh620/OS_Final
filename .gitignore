@@ -1,0 +1,5 @@
+.venv
+__pycache__
+.Ds_Store
+.idea
+.vscode

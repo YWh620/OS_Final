@@ -1,0 +1,8 @@
+# RamFS - In-Memory File System
+# No external dependencies required
+# Pure Python implementation using only standard library
+
+# Development dependencies (optional)
+# pytest>=7.0.0          # For running tests (if needed)
+# black>=22.0.0          # For code formatting
+# pylint>=2.0.0          # For code linting
