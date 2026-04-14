@@ -3,3 +3,8 @@ __pycache__
 .Ds_Store
 .idea
 .vscode
+*.pptx
+demo_assets/
+demo_assets/*
+.pptx_lib/
+.pptx_lib/*

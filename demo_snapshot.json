@@ -1,0 +1,43 @@
+{
+  "timestamp": 1776191729.262919,
+  "superblock": {
+    "block_size": 4096,
+    "max_blocks": 25600,
+    "total_blocks": 1,
+    "created": 1776191723.243111
+  },
+  "root": {
+    "ino": 1,
+    "type": "DIRECTORY",
+    "permissions": 493,
+    "size": 0,
+    "created": 1776191723.2431319,
+    "modified": 1776191723.2431319,
+    "data": {},
+    "children": {
+      "demo": {
+        "ino": 2,
+        "type": "DIRECTORY",
+        "permissions": 493,
+        "size": 0,
+        "created": 1776191724.0784872,
+        "modified": 1776191724.07849,
+        "data": {},
+        "children": {
+          "hello.txt": {
+            "ino": 3,
+            "type": "FILE",
+            "permissions": 420,
+            "size": 11,
+            "created": 1776191725.085825,
+            "modified": 1776191726.167298,
+            "data": {
+              "0": "48656c6c6f5f52616d4653"
+            },
+            "children": {}
+          }
+        }
+      }
+    }
+  }
+}
