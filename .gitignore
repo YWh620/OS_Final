@@ -6,5 +6,3 @@ __pycache__
 *.pptx
 demo_assets/
 demo_assets/*
-.pptx_lib/
-.pptx_lib/*
