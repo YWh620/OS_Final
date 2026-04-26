@@ -4,8 +4,10 @@ VirtualFS - Main Filesystem Implementation
 High-level filesystem operations similar to VFS layer in Linux kernel.
 """
 
-import time
+import base64
+import hashlib
 import json
+import time
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 
@@ -407,9 +409,37 @@ class VirtualFS:
             'usage_percent': (self.superblock.total_blocks / self.superblock.max_blocks * 100) if self.superblock.max_blocks > 0 else 0,
         }
     
+    # ------------------------------------------------------------------
+    # Snapshot persistence
+    #
+    # The on-disk format is content-addressed: each unique page is hashed
+    # (SHA-256, truncated to 16 hex characters) and stored once in a
+    # top-level `blobs` map keyed by that hash, with the bytes encoded as
+    # base64. Inodes only carry a {page_index -> hash} mapping. This both
+    # deduplicates identical pages (e.g. zero-padded files, repeated log
+    # lines) and replaces hex (1 byte -> 2 chars) with base64
+    # (3 bytes -> 4 chars), which keeps the JSON close to the raw payload
+    # size instead of 2-3x larger.
+    # ------------------------------------------------------------------
+
+    SNAPSHOT_VERSION = 2
+    _HASH_LEN = 16  # 64 bits of SHA-256 -> ample for educational sizes
+
+    @staticmethod
+    def _page_hash(page_bytes: bytes) -> str:
+        return hashlib.sha256(page_bytes).hexdigest()[:VirtualFS._HASH_LEN]
+
     def save_snapshot(self, filepath: str) -> bool:
-        """Serialize filesystem to JSON"""
+        """Serialize filesystem to a content-addressed JSON snapshot."""
         try:
+            blobs: Dict[str, str] = {}
+
+            def page_ref(page_bytes: bytes) -> str:
+                h = self._page_hash(page_bytes)
+                if h not in blobs:
+                    blobs[h] = base64.b64encode(page_bytes).decode('ascii')
+                return h
+
             def inode_to_dict(inode: Inode) -> Dict:
                 return {
                     'ino': inode.ino,
@@ -418,11 +448,14 @@ class VirtualFS:
                     'size': inode.size,
                     'created': inode.created_time,
                     'modified': inode.modified_time,
-                    'data': {k: v.hex() for k, v in inode.pages.items()},
+                    'pages': {str(k): page_ref(v) for k, v in inode.pages.items()},
                     'children': {name: inode_to_dict(child) for name, child in inode.children.items()}
                 }
-            
+
+            root_dict = inode_to_dict(self.superblock.root_inode)
+
             snapshot = {
+                'version': self.SNAPSHOT_VERSION,
                 'timestamp': time.time(),
                 'superblock': {
                     'block_size': self.superblock.block_size,
@@ -430,29 +463,46 @@ class VirtualFS:
                     'total_blocks': self.superblock.total_blocks,
                     'created': self.superblock.created_time,
                 },
-                'root': inode_to_dict(self.superblock.root_inode)
+                'blobs': blobs,
+                'root': root_dict,
             }
-            
+
             with open(filepath, 'w') as f:
                 json.dump(snapshot, f, indent=2)
-            
+
             return True
         except Exception as e:
             print(f"Error saving snapshot: {e}")
             return False
-    
+
     def load_snapshot(self, filepath: str) -> bool:
-        """Restore filesystem from JSON snapshot"""
+        """Restore filesystem from a content-addressed JSON snapshot.
+
+        Both the current (version 2, base64 + hash dedup) and the legacy
+        (version 1, inline hex page bytes) layouts are accepted so older
+        snapshots remain loadable.
+        """
         try:
             with open(filepath, 'r') as f:
                 snapshot = json.load(f)
-            
-            # Reset filesystem
+
             self.superblock = SuperBlock(
                 block_size=snapshot['superblock']['block_size'],
                 max_blocks=snapshot['superblock']['max_blocks']
             )
-            
+
+            blobs_b64 = snapshot.get('blobs', {})
+            blobs: Dict[str, bytes] = {h: base64.b64decode(b64) for h, b64 in blobs_b64.items()}
+
+            def resolve_pages(entry: Dict) -> Dict[int, bytes]:
+                # New layout: {page_idx: hash}
+                if 'pages' in entry:
+                    return {int(k): blobs[h] for k, h in entry['pages'].items()}
+                # Legacy layout: {page_idx: hex_string}
+                if 'data' in entry:
+                    return {int(k): bytes.fromhex(v) for k, v in entry['data'].items()}
+                return {}
+
             def dict_to_inode(data: Dict) -> Inode:
                 inode = Inode(
                     ino=data['ino'],
@@ -461,16 +511,16 @@ class VirtualFS:
                     size=data['size'],
                     created_time=data['created'],
                     modified_time=data['modified'],
-                    pages={int(k): bytes.fromhex(v) for k, v in data['data'].items()},
+                    pages=resolve_pages(data),
                 )
                 for name, child_data in data['children'].items():
                     inode.children[name] = dict_to_inode(child_data)
                 return inode
-            
+
             self.superblock.root_inode = dict_to_inode(snapshot['root'])
             self.superblock.mounted = True
             self.superblock.total_blocks = snapshot['superblock']['total_blocks']
-            
+
             return True
         except Exception as e:
             print(f"Error loading snapshot: {e}")
